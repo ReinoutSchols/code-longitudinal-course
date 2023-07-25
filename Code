@@ -1,0 +1,719 @@
+title: "Opdracht longitudinaal onderzoek"
+include: false
+editor: visual
+warning: false
+message: false
+format: 
+  html:
+    code-fold: true
+---
+
+```{r}
+
+#| include: false 
+
+# code om quarto doc te maken:
+# quarto.cmd publish quarto-pub "C:\Users\reino\OneDrive\Documents\Longitudinaal_onderzoek\eindopdracht-R-Doc.qmd"
+
+library(broom)
+library(here)
+library(interactions)
+library(knitr)
+library(lavaan)
+library(parameters)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(readr)
+library(haven)
+library(foreign)
+library(tidyr)
+library(esmpack)
+library(emmeans)
+library(broom.mixed)
+library(here)
+library(nlme)
+library(rosetta)
+library(pastecs)
+library(car)
+library(ufs)
+library(esmpack)
+library(lattice)
+library(latticeExtra)
+library(lme4)
+library(ggeffects)
+library(magrittr)
+library(broom)
+library(broom.mixed)
+library(naniar)
+library(data.table)
+library(Matrix)
+library(rstatix)
+library(forecast)
+library(kableExtra)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+#| include: false 
+### Data inlezen
+Data <-
+read.spss(
+"~/Longitudinaal_onderzoek/DATA750_R.Schols_C.Liauw-Jen-Choy.sav",
+use.value.labels = TRUE,
+to.data.frame = TRUE)
+
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+#Data inlezen en factors maken (0 = man, 1 = vrouw)
+Data$Gender <- as.factor(Data$Gender) 
+Data$Meetmoment_getal <- Data$Meetmoment
+Data$Meetmoment <- as.factor(Data$Meetmoment)
+levels(Data$Gender) <- c("Man", "Vrouw")
+levels(Data$Meetmoment)
+levels(Data$Gender)
+```
+
+```{r}
+Data <- read.csv("C:/Users/reino/OneDrive/Documents/Hyperseks.csv")
+#| include: false
+#Data inlezen en factors maken (0 = man, 1 = vrouw)
+Data$Gender <- as.factor(Data$Gender) 
+Data$Meetmoment_getal <- Data$Meetmoment
+Data$Meetmoment <- as.factor(Data$Meetmoment)
+levels(Data$Gender) <- c("Man", "Vrouw")
+levels(Data$Meetmoment)
+levels(Data$Gender)
+Data$Participant <- as.factor(Data$Participant)
+Data$Therapie <- as.factor(Data$Therapie)
+Data$Medicijnen <- as.factor(Data$Medicijnen)
+levels(Data$Therapie)
+levels(Data$Therapie) <- c("GeenTherapie", "VatvanZelfwaardering")
+levels(Data$Therapie)
+levels(Data$Medicijnen) <- c("GeenMedicijnen", "OxytocineSuppressor")
+levels(Data$Medicijnen)
+    
+```
+
+```{r}
+#| include: false 
+#### Kolom voor conditie maken
+
+Data$Conditie[Data$Medicijnen == "GeenMedicijnen" & Data$Therapie == "GeenTherapie"] <- "Controle"
+Data$Conditie[Data$Medicijnen == "GeenMedicijnen" & Data$Therapie == "VatvanZelfwaardering"] <- "Therapie"
+Data$Conditie[Data$Medicijnen == "OxytocineSuppressor" & Data$Therapie == "VatvanZelfwaardering"] <- "Combinatie"
+Data$Conditie[Data$Medicijnen == "OxytocineSuppressor" & Data$Therapie == "GeenTherapie"] <- "Medicijn"
+unique(Data$Conditie)
+Data$Conditie <- as.factor(Data$Conditie)
+levels(Data$Conditie)
+Data$Conditie <- factor(Data$Conditie, levels = c("Controle", "Therapie","Medicijn", "Combinatie"))
+levels(Data$Conditie)
+
+
+```
+
+```{r}
+#| include: false 
+### Dataframe naar breed formaat transformeren
+Data_wide1 <- Data %>% select(-c("Therapie", "Medicijnen", "Meetmoment_getal"))
+Data_wide <- reshape(Data_wide1, idvar = c("Participant", "Gender", "Leeftijd", "Conditie"), timevar = "Meetmoment", direction = "wide")
+
+#Data_wide <-Data_wide2 %>% select(-c("GenderVector.0", "GenderVector.1", "GenderVector.2", "GenderVector.3", "GenderVector.4", "GenderVector.5", "GenderVector.6", "GenderVector.7", "GenderVector.8", "GenderVector.9"))
+```
+
+# Data screening: {style="color:blue"}
+
+#### Condities vergelijken op achtergrondvariabelen {style="color:green"}
+
+```{r}
+#| include: true
+table(Data_wide$Gender)
+table(Data_wide$Gender, Data_wide$Conditie)
+```
+
+#### Controleren voor missing values {style="color:green"}
+
+```{r}
+#| include: true
+n_miss(Data_wide)
+```
+
+#### Psychologisch welzijn over de tijd heen opgesplitst per conditie {style="color:green"}
+
+```{r}
+#| include: true
+#| warning: false
+#| message: false
+
+# Beide geslachten samen:
+ggplot2::ggplot(Data,
+                aes(
+                  Meetmoment_getal,
+                  PsychWelzijn,
+                  colour = Conditie,
+                  fill = Conditie
+                )) +
+  geom_point(
+    size = 1,
+    alpha = 0.6,
+    position = position_jitter(width = 0.1, height = 0.1)
+  ) +
+  geom_smooth(method = "lm", alpha = 0.3) +
+  scale_y_continuous(breaks = seq(-20, 5, 2.5)) +
+  scale_x_continuous(
+    breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    labels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+  ) +
+  labs(
+    x = "Tijd van baseline (weken)",
+    y = "Psychologisch Welzijn",
+    colour = "Conditie",
+    fill = "Conditie"
+  )   +
+  theme_minimal() 
+```
+
+#### Boxplot van psychologisch welzijn over de tijd heen {style="color:green"}
+
+```{r}
+#| include: true
+# man en vrouw samen
+ggplot(Data, aes(Meetmoment, PsychWelzijn)) + 
+  geom_boxplot(width = 0.6, outlier.colour = "blue") +
+  theme_classic()
+
+
+
+```
+
+#### Boxplot van psychologisch welzijn over de tijd heen opgesplitst per conditie {style="color:green"}
+
+```{r}
+#| include: true
+# Gesplitst per Conditie
+ggplot(Data, aes(Meetmoment, PsychWelzijn)) + 
+
+  geom_boxplot(width = 0.5, outlier.colour = "blue") +
+  theme_classic() + facet_wrap(~ Conditie)
+```
+
+#### Histogram van psychologisch welzijn over de tijd heen {style="color:green"}
+
+```{r}
+#| include: true
+ggplot(Data, aes(PsychWelzijn)) + 
+  geom_histogram() +
+  theme_classic() + facet_wrap(~Meetmoment)
+```
+
+#### Gemiddelde van 0-metingen vergelijken {style="color:green"}
+
+```{r}
+#| include: true
+Data_nulmeting <- Data %>% 
+  dplyr::group_by(Conditie, Meetmoment) %>% 
+  dplyr::summarize(
+    mean_PsychWelzijn = mean(PsychWelzijn),mean_leeftijd = mean(Leeftijd)) %>%
+ filter(Meetmoment ==0)
+Data_nulmeting |> 
+  knitr::kable(digits = 3)
+
+
+#### Baseline visualiseren opgesplitst per conditie {style="color:green"}
+
+# Baseline meting plotten
+
+Data_nulmeting1 <- Data %>% 
+  dplyr::group_by(Conditie, Meetmoment) %>% 
+ filter(Meetmoment ==0)
+
+# Baseline opgesplitst per conditie
+ggplot(Data_nulmeting1, aes(Meetmoment, PsychWelzijn)) + 
+geom_boxplot(width = 0.5, outlier.colour = "blue") +
+  theme_classic() + facet_wrap(~Conditie) +
+  labs(y = "Baseline Psychologisch Welzijn")
+
+```
+
+#### Anova uitvoeren op baseline meting {style="color:green"}
+
+```{r}
+#| message: false
+#| include: true
+
+
+# Anova
+anova.baseline <- aov(PsychWelzijn.0 ~ Conditie, data = Data_wide)
+
+#Assumpties checken
+
+leveneTest(PsychWelzijn.0 ~ Conditie, data = Data_wide)
+plot(anova.baseline, 1)
+plot(anova.baseline, 2)
+anova_residuals <- residuals(object = anova.baseline )
+shapiro.test(x = anova_residuals ) 
+
+summary(anova.baseline) 
+```
+
+#### Outliers over de metingen heen {style="color:green"}
+
+```{r}
+#| include: true
+# Outliers bekeken per deelnemer
+outlier <- Data %>% group_by(Meetmoment) %>%
+  identify_outliers(PsychWelzijn) %>% ungroup() %>% arrange(Participant)
+outlier %>% select(
+  -c(
+    "Gender",
+    "Leeftijd",
+    "is.outlier",
+    "is.extreme",
+    "Therapie",
+    "Medicijnen",
+    "Meetmoment_getal"
+  )
+) %>% knitr::kable(digits = 2) %>% kable_styling(latex_options = "scale_down")
+
+outlier %>%
+  group_by(Participant) %>% tally() %>% filter(n >= 2) %>% arrange(n) %>% 
+  knitr::kable(caption = "Deelnemers met meeste outliers") %>% 
+  kable_styling(latex_options = "scale_down")
+
+
+```
+
+# model bouwen {style="color:blue"}
+
+#### Intercept only model bouwen {style="color:green"}
+
+```{r}
+#| include: true 
+
+# Fixed intercept 
+
+intercept <-gls(PsychWelzijn ~ 1, data = Data, method = 
+"ML", na.action = na.exclude)
+
+# random intercept model
+
+randomIntercept <- lmer(PsychWelzijn ~ 1 + (1| Participant), 
+                        data = Data, REML = FALSE, na.action = na.omit)
+```
+
+#### ICC berekenen {style="color:green"}
+
+```{r}
+#| include: true 
+# ICC  = intercept variantie / (Intercept variantie + variantie residuals)
+ICC <- 3.373/(3.373 + 4.567)
+# 42.5 procent van variantie  wordt verklaard doordat observaties genest zijn 
+ICC
+```
+
+#### Meetmoment toevoegen als fixed effect en als random slope effect {style="color:green"}
+
+```{r}
+#| include: true 
+#Geslacht toevoegen als covariabele
+#Model_geslacht <- update(randomIntercept, .~. + Gender)
+
+
+# Meetmoment toevoegen als hoofdeffect
+
+MeetmomentFixed <- update(randomIntercept, .~. + Meetmoment_getal,
+                      data = Data)
+
+#Meetmoment toevoegen als random slope
+# = effect van tijd is verschillend per deelnemer
+
+MeetmomentRS <- lmer(PsychWelzijn ~ Meetmoment_getal + 
+                    ( Meetmoment_getal| Participant), data = Data, REML = FALSE)
+```
+
+#### Vervolgens therapie als hoofdeffect en moderator toevoegen {style="color:green"}
+
+```{r}
+#| include: true
+# Medicijn conditie toevoegen (voor aparte plot te maken)
+Model_medicijn_pr <- update(MeetmomentRS, .~. + Medicijnen)
+
+#interactie medicijn en tijd (voor apart plot te maken)
+Model_medicijn_tijd_pr <- update(Model_medicijn_pr, .~. + 
+                                   Medicijnen:Meetmoment_getal)
+
+#Therapie conditie toevoegen
+Model_therapie <- update(MeetmomentRS, .~. + Therapie)
+
+#interactie therapie en tijd
+Model_therapie_tijd <- update(Model_therapie, .~. + Therapie:Meetmoment_getal)
+
+```
+
+#### Modellen tot nu toe vergelijken {style="color:green"}
+
+```{r}
+#| include: true
+anova(
+  randomIntercept,
+  MeetmomentFixed,
+  MeetmomentRS,
+  Model_therapie,
+  Model_therapie_tijd
+) %>%
+  kable(digits = 3) %>% kable_styling(latex_options = "scale_down") %>%
+  remove_column(c(4, 5))
+
+
+```
+
+#### Model verder uitbouwen (medicijn als hoofdeffect) {style="color:green"}
+
+```{r}
+#| include: true 
+# Medicijn conditie toevoegen
+Model_medicijn <- update(Model_therapie_tijd, .~. + Medicijnen)
+```
+
+#### Model verder uitbouwen (Interactie tussen medicijn en tijd en tussen medicijn en therapie toevoegen) {style="color:green"}
+
+```{r}
+#| include: true
+#interactie medicijn en tijd
+Model_medicijn_tijd <-
+  update(Model_medicijn,
+         . ~ . + Medicijnen:Meetmoment_getal + Medicijnen:Therapie)
+
+```
+
+#### Modellen tot nu toe vergelijken {style="color:green"}
+
+```{r}
+#| include: true
+anova(
+  randomIntercept,
+  MeetmomentFixed,
+  MeetmomentRS,
+  Model_therapie,
+  Model_therapie_tijd,
+  Model_medicijn,
+  Model_medicijn_tijd
+) %>% kable(digits = 3) %>% kable_styling(latex_options = "scale_down") %>% 
+  remove_column(c(4, 5))
+```
+
+#### Model verder uitbouwen (de driewegsinteractie tussen tijd, therapie en medicijn) {style="color:green"}
+
+```{r}
+#| include: true
+
+#driewegs interactie
+Model_therapie_medicijn_tijd <-
+  update(
+    Model_medicijn_tijd,
+    . ~ . + Therapie:Medicijnen:Meetmoment_getal,
+    control = lmerControl(optimizer = "Nelder_Mead")
+  )
+
+```
+
+#### Modellen vergelijken {style="color:green"}
+
+```{r}
+#| include: true
+anova(
+  randomIntercept,
+  MeetmomentFixed,
+  MeetmomentRS,
+  Model_therapie,
+  Model_therapie_tijd,
+  Model_medicijn,
+  Model_medicijn_tijd,
+  Model_therapie_medicijn_tijd
+)  %>% kable(digits = 3) %>% kable_styling(latex_options = "scale_down") %>% 
+  remove_column(c(4, 5))
+
+
+```
+
+#### Psychologisch welzijn over de tijd heen met therapie als moderator (Van geobserveerde waarden) {style="color:green"}
+
+```{r}
+#| include: true
+# Moderatie effect van therapie
+
+ggplot2::ggplot(Data,
+                aes(
+                  Meetmoment_getal,
+                  PsychWelzijn,
+                  colour = Therapie,
+                  fill = Therapie
+                )) +
+  geom_point(
+    size = 1,
+    alpha = 0.6,
+    position = position_jitter(width = 0.1, height = 0.1)
+  ) +
+  geom_smooth(method = "lm", alpha = 0.3) +
+  scale_y_continuous(breaks = seq(-20, 5, 2.5)) +
+  scale_x_continuous(
+    breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    labels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+  ) +
+  labs(x = "Tijd van baseline (weken)", y = "Psychologisch Welzijn")   +
+  theme_minimal() 
+```
+
+#### Voorspelde waarde van psychologisch welzijn over de tijd heen met therapie als moderator (volgens model) {style="color:green"}
+
+```{r}
+#| include: true
+predicted_therapie_tijd <-
+  ggpredict(Model_therapie_tijd, c("Meetmoment_getal", "Therapie"))
+plot(predicted_therapie_tijd)
+```
+
+#### psychologisch welzijn over de tijd heen met medicijn als moderator (geobserveerde waarden) {style="color:green"}
+
+```{r}
+#| include: true
+# Moderatie effect van medicijnen
+
+ggplot2::ggplot(Data,
+                aes(
+                  Meetmoment_getal,
+                  PsychWelzijn,
+                  colour = Medicijnen,
+                  fill = Medicijnen
+                )) +
+  geom_point(
+    size = 1,
+    alpha = 0.6,
+    position = position_jitter(width = 0.1, height = 0.1)
+  ) +
+  geom_smooth(method = "lm", alpha = 0.3) +
+  scale_y_continuous(breaks = seq(-20, 5, 2.5)) +
+  scale_x_continuous(
+    breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    labels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+  ) +
+  labs(x = "Tijd van baseline (weken)", y = "Psychologisch Welzijn")   +
+  theme_minimal() 
+
+
+```
+
+#### Voorspelde waarde van psychologisch welzijn over de tijd heen met medicijn als moderator (volgens model) {style="color:green"}
+
+```{r}
+#| include: true
+predicted_medicijn_tijd <-
+  ggpredict(Model_medicijn_tijd_pr, c("Meetmoment_getal", "Medicijnen"))
+plot(predicted_medicijn_tijd)
+
+
+```
+
+#### driewegs interactie tussen therapie, medicijn, en tijd visualiseren (geobserveerde waarden) {style="color:green"}
+
+```{r}
+#| include: true
+
+
+# Interactie tussen Therapie en Medicijnen over de tijd heen
+#ggplot(Data, aes(Meetmoment, PsychWelzijn)) +
+
+#  geom_boxplot(width = 0.5, outlier.colour = "blue") +
+#  theme_classic() + facet_wrap(Therapie~Medicijnen)
+
+ggplot2::ggplot(Data,
+                aes(
+                  Meetmoment_getal,
+                  PsychWelzijn,
+                  colour = Medicijnen,
+                  fill = Medicijnen
+                )) +
+  geom_point(
+    size = 1,
+    alpha = 0.6,
+    position = position_jitter(width = 0.1, height = 0.1)
+  ) +
+  geom_smooth(method = "lm", alpha = 0.3) +
+  scale_y_continuous(breaks = seq(-20, 5, 2)) +
+  scale_x_continuous(
+    breaks = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+    labels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+  ) +
+  labs(x = "Tijd van baseline (weken)", y = "Psychologisch Welzijn") + 
+  facet_wrap( ~ Therapie) + theme_minimal() 
+
+```
+
+#### Voorspelde waarde van psychologisch welzijn over de tijd heen met medicijn en therapie als moderatoren (volgens model) {style="color:green"}
+
+```{r}
+#| include: true
+#| message: false
+predicted_therapie_medicijn_tijd <-
+  ggpredict(
+    Model_therapie_medicijn_tijd,
+    terms = c("Meetmoment_getal",
+              "Medicijnen",
+              "Therapie")
+  )
+
+plot(predicted_therapie_medicijn_tijd)
+
+```
+
+#### Parameters van fixed effecten opvragen {style="color:green"}
+
+```{r}
+#| include: true
+#Voor p waarden te krijgen
+lmerTest:::get_coefmat(Model_therapie_medicijn_tijd)
+
+#Voor confidence intervallen op te vragen
+broom.mixed::tidy(Model_therapie_medicijn_tijd,
+                  conf.int = T,
+                  effects = "fixed") %>% 
+  select(-c("statistic", "estimate", "std.error", "effect")) 
+```
+
+#### Wekelijkse verandering in welzijn weergeven {style="color:green"}
+
+```{r}
+#| include: true
+#### Wekelijkse verandering in welzijn weergeven
+
+welzijn_over_tijd <-
+  emmeans::emtrends(
+    Model_therapie_medicijn_tijd,
+    specs = c("Therapie", "Medicijnen"),
+    var = "Meetmoment_getal"
+  ) %>%
+  tibble::as_tibble()
+welzijn_over_tijd %>% kable(digits = 2) %>% 
+  kable_styling(latex_options ="scale_down")  %>% 
+  remove_column(c(4, 5))
+```
+
+#### Parameters van random effecten opvragen {style="color:green"}
+
+```{r}
+#| include: true
+# Via tidyverse opvragen
+broom.mixed::tidy(Model_therapie_medicijn_tijd,
+                  conf.int = F,
+                  effects = "ran_pars") %>%
+  knitr::kable(digits = 3, caption = "Parameters random effecten") %>% 
+  kable_styling(latex_options ="scale_down")
+```
+
+#### F-statistieken opvragen {style="color:green"}
+
+```{r}
+#| include: true
+anova1 <- anova(Model_therapie_medicijn_tijd)  
+
+anova(Model_therapie_medicijn_tijd) %>%
+  knitr::kable(digits = 2, caption = "F-statistieken") %>% 
+kable_styling(latex_options="scale_down")
+
+
+
+```
+
+## Model met AR1 (moet met andere functie in R) {style="color:blue"}
+
+```{r}
+#| include: true
+ 
+# null-model
+
+intercept_lme <- gls(
+  PsychWelzijn ~ 1,
+  data = Data,
+  method =
+    "ML",
+  na.action = na.exclude
+)
+
+# random intercept model
+randomIntercept_lme <-
+  lme(
+    PsychWelzijn ~ 1,
+    data = Data,
+    random = ~ 1 |
+      Participant,
+    method = "ML",
+    na.action = na.exclude,
+    control =  list(opt = "optim")
+  )
+
+
+# Meetmoment toevoegen als fixed effect
+
+MeetmomentFixed_lme <-
+  update(randomIntercept_lme, . ~ . + Meetmoment_getal)
+
+#Meetmoment toevoegen als random slope
+# = effect van tijd is verschillend per deelnemer
+
+MeetmomentRS_lme <-
+  update(MeetmomentFixed_lme, random = ~ Meetmoment_getal |
+           Participant)
+
+#Therapie conditie toevoegen
+Model_therapie_lme <- update(MeetmomentRS_lme, . ~ . + Therapie)
+
+
+#interactie therapie en tijd
+Model_therapie_tijd_lme <-
+  update(Model_therapie_lme, . ~ . + Therapie:Meetmoment_getal)
+
+# Medicijn conditie toevoegen
+Model_medicijn_lme <-
+  update(Model_therapie_tijd_lme, . ~ . + Medicijnen)
+
+#interactie medicijn en tijd en medicijn x therapie
+Model_medicijn_tijd_lme <-
+  update(Model_medicijn_lme,
+         . ~ . + Medicijnen:Meetmoment_getal + Medicijnen:Therapie)
+
+#driewegs interactie
+Model_therapie_medicijn_tijd_lme <-
+  update(Model_medicijn_tijd_lme,
+         . ~ . + Therapie:Medicijnen:Meetmoment_getal)
+#AR1 toevoegen
+ARModel_lme <-
+  update(
+    Model_therapie_medicijn_tijd_lme,
+    correlation = corAR1(0, form = ~ Meetmoment_getal | Participant)
+  )
+
+anova(
+  randomIntercept_lme,
+  MeetmomentFixed_lme ,
+  MeetmomentRS_lme,
+  Model_therapie_lme,
+  Model_therapie_tijd_lme,
+  Model_medicijn_lme,
+  Model_medicijn_tijd_lme,
+  Model_therapie_medicijn_tijd_lme,
+  ARModel_lme
+) 
+```
+
+#### Visualisatie van Autocorrelatie {style="color:green"}
+
+```{r}
+#| include: true
+plot(ACF(ARModel_lme, resType = "normalized"))
+
+
+```
